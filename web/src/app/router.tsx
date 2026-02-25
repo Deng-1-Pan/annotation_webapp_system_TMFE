@@ -23,4 +23,6 @@ export const router = createBrowserRouter([
   { path: '/admin', element: <AdminPage /> },
   { path: '/forbidden', element: <ForbiddenPage /> },
   { path: '*', element: <NotFoundPage /> },
-])
+], {
+  basename: import.meta.env.BASE_URL
+})
