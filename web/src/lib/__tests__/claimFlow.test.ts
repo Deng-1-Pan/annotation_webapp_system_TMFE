@@ -1,0 +1,46 @@
+import { expect, it } from 'vitest'
+import { createMockSeedSnapshot } from '../../test-data/mockSeed'
+import { claimBatchInSnapshot, saveAnnotationInSnapshot } from '../progress'
+
+it('marks claims submitted after saving and does not block claiming a different task', () => {
+  const snapshot = createMockSeedSnapshot()
+
+  const aiBatch = claimBatchInSnapshot({
+    snapshot,
+    taskType: 'ai_sentence_audit',
+    userId: 'weijie-huang',
+    mode: 'annotator',
+    batchSize: 10,
+    nowIso: '2026-02-25T12:00:00Z',
+  })
+
+  expect(aiBatch.sampleIds.length).toBeGreaterThan(0)
+
+  for (const sampleId of aiBatch.sampleIds) {
+    saveAnnotationInSnapshot({
+      snapshot,
+      taskType: 'ai_sentence_audit',
+      sampleId,
+      user: { id: 'weijie-huang', displayName: 'Weijie Huang' },
+      mode: 'annotator',
+      annotation: { is_ai_true: 1, notes: 'done' },
+      batchId: aiBatch.batchId,
+      nowIso: '2026-02-25T12:01:00Z',
+    })
+  }
+
+  expect(
+    snapshot.claims.filter((c) => c.batchId === aiBatch.batchId && c.status === 'claimed').length,
+  ).toBe(0)
+
+  const roleBatch = claimBatchInSnapshot({
+    snapshot,
+    taskType: 'role_audit_qa_turns',
+    userId: 'weijie-huang',
+    mode: 'annotator',
+    batchSize: 10,
+    nowIso: '2026-02-25T12:02:00Z',
+  })
+
+  expect(roleBatch.sampleIds.length).toBeGreaterThan(0)
+})

@@ -1,0 +1,11 @@
+# Git LFS rules scoped to annotation_webapp_system_TMFE subtree
+# Requires local setup: `git lfs install`
+
+# Generated/packaged data bundles used by the webapp
+**/data_import/generated/**/*.json filter=lfs diff=lfs merge=lfs -text
+**/data_import/generated/**/*.jsonl filter=lfs diff=lfs merge=lfs -text
+**/data_import/generated/**/*.csv filter=lfs diff=lfs merge=lfs -text
+**/data_import/generated/**/*.parquet filter=lfs diff=lfs merge=lfs -text
+
+# Optional packaged data assets for GitHub deployment/demo
+**/data_assets/**/* filter=lfs diff=lfs merge=lfs -text
