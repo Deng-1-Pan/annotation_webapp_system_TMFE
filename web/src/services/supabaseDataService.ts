@@ -74,14 +74,16 @@ function rowToTranscriptContext(row: Record<string, unknown>): TranscriptDocCont
 
 async function loadSnapshot(): Promise<DataStoreSnapshot> {
   const client = requireClient()
+  // Supabase PostgREST defaults to 1000-row limit; use .range() to load all rows.
+  const ALL = { from: 0, to: 9999 } as const
   const [usersRes, cfgRes, itemsRes, docsRes, claimsRes, annRes, adjRes] = await Promise.all([
     client.from('app_users').select('*').order('display_name', { ascending: true }),
     client.from('task_configs').select('*'),
-    client.from('task_items').select('*'),
+    client.from('task_items').select('*').range(ALL.from, ALL.to),
     Promise.resolve({ data: [], error: null }), // transcript_docs are now fetched lazily
-    client.from('claims').select('*'),
-    client.from('annotations').select('*'),
-    client.from('adjudications').select('*'),
+    client.from('claims').select('*').range(ALL.from, ALL.to),
+    client.from('annotations').select('*').range(ALL.from, ALL.to),
+    client.from('adjudications').select('*').range(ALL.from, ALL.to),
   ])
 
   for (const r of [usersRes, cfgRes, itemsRes, docsRes, claimsRes, annRes, adjRes]) {

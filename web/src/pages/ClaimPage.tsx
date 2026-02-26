@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { AppShell } from '../components/common/AppShell'
 import { TaskTutorial } from '../components/common/TaskTutorial'
@@ -19,6 +19,7 @@ export function ClaimPage() {
   const [batchSize, setBatchSize] = useState(10)
   const [claimedPreview, setClaimedPreview] = useState<{ toDoubleCount: number; newItemCount: number } | null>(null)
   const [claimInfo, setClaimInfo] = useState<string | null>(null)
+  const claimingRef = useRef(false)
 
   const validTaskType = taskType && isTaskType(taskType) ? taskType : null
   const taskProgressQuery = useQuery({
@@ -38,6 +39,8 @@ export function ClaimPage() {
 
   const claimMutation = useMutation({
     mutationFn: async () => {
+      if (claimingRef.current) throw new Error('请勿重复点击')
+      claimingRef.current = true
       if (!session || !validTaskType) throw new Error('Invalid task')
       if (effectiveRequestedBatchSize <= 0) {
         throw new Error('当前任务没有可分配的剩余样本')
@@ -48,6 +51,7 @@ export function ClaimPage() {
         result: await service.claimBatch({ session, taskType: validTaskType, batchSize: effectiveRequestedBatchSize }),
       }
     },
+    onSettled: () => { claimingRef.current = false },
     onSuccess: ({ result, requestedBatchSize, effectiveRequestedBatchSize }) => {
       setCurrentBatchId(result.taskType, result.batchId)
       setClaimedPreview({ toDoubleCount: result.toDoubleCount, newItemCount: result.newItemCount })

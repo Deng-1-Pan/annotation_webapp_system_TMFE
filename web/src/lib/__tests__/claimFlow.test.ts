@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { createMockSeedSnapshot } from '../../test-data/mockSeed'
 import { buildBatchView, claimBatchInSnapshot, saveAnnotationInSnapshot } from '../progress'
 
@@ -76,4 +76,36 @@ it('deduplicates duplicate claims for the same sample within one batch when buil
   })
 
   expect(view.items.map((i) => i.taskItem.sampleId)).toEqual(batch.sampleIds)
+})
+
+it('generates distinct batch ids for same-task claims created in the same millisecond', () => {
+  const snapshot = createMockSeedSnapshot()
+  const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000)
+  const randSpy = vi.spyOn(Math, 'random')
+    .mockReturnValueOnce(0.111111111)
+    .mockReturnValueOnce(0.222222222)
+
+  try {
+    const first = claimBatchInSnapshot({
+      snapshot,
+      taskType: 'ai_sentence_audit',
+      userId: 'weijie-huang',
+      mode: 'annotator',
+      batchSize: 5,
+      nowIso: '2026-02-25T12:00:00Z',
+    })
+    const second = claimBatchInSnapshot({
+      snapshot,
+      taskType: 'ai_sentence_audit',
+      userId: 'weijie-huang',
+      mode: 'annotator',
+      batchSize: 5,
+      nowIso: '2026-02-25T12:00:00Z',
+    })
+
+    expect(first.batchId).not.toBe(second.batchId)
+  } finally {
+    randSpy.mockRestore()
+    nowSpy.mockRestore()
+  }
 })
