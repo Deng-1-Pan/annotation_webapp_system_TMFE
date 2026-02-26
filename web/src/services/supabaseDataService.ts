@@ -5,7 +5,6 @@ import {
   buildBatchView,
   buildExportRows,
   buildUserProgress,
-  claimBatchInSnapshot,
   computeAllTaskProgress,
   getAdjudicationDetail,
   listAdjudicationQueue,
@@ -16,6 +15,7 @@ import type {
   AdminConfigUpdate,
   AnnotationInput,
   AppUser,
+  BatchClaimResult,
   DataStoreSnapshot,
   ExportRequest,
   ExportResult,
@@ -31,6 +31,37 @@ function requireClient() {
     throw new Error('Supabase env not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.')
   }
   return supabase
+}
+
+function parseClaimBatchRpcResult(data: unknown): BatchClaimResult {
+  if (!data || typeof data !== 'object') {
+    throw new Error('Invalid claim_batch_atomic response: expected object')
+  }
+  const row = data as Record<string, unknown>
+  const rawSampleIds = row.sample_ids
+  if (!Array.isArray(rawSampleIds) || !rawSampleIds.every((v) => typeof v === 'string')) {
+    throw new Error('Invalid claim_batch_atomic response: sample_ids')
+  }
+  const taskType = row.task_type
+  if (typeof taskType !== 'string') {
+    throw new Error('Invalid claim_batch_atomic response: task_type')
+  }
+  const batchId = row.batch_id
+  if (typeof batchId !== 'string') {
+    throw new Error('Invalid claim_batch_atomic response: batch_id')
+  }
+  const toDoubleCount = Number(row.to_double_count)
+  const newItemCount = Number(row.new_item_count)
+  if (!Number.isInteger(toDoubleCount) || !Number.isInteger(newItemCount)) {
+    throw new Error('Invalid claim_batch_atomic response: counts')
+  }
+  return {
+    batchId,
+    taskType: taskType as TaskType,
+    sampleIds: rawSampleIds,
+    toDoubleCount,
+    newItemCount,
+  }
 }
 
 function rowToTaskItem(row: Record<string, unknown>): TaskItemRecord {
@@ -195,34 +226,15 @@ export class SupabaseDataService implements DataService {
 
   async claimBatch(input: { session: SessionSelection; taskType: TaskType; batchSize: number }) {
     const client = requireClient()
-    const snapshot = await loadSnapshot()
-    hydrateAnnotationUserNames(snapshot)
-    const result = claimBatchInSnapshot({
-      snapshot,
-      taskType: input.taskType,
-      userId: input.session.userId,
-      mode: input.session.mode,
-      batchSize: input.batchSize,
-      claimTtlMinutes: CLAIM_TTL_MINUTES,
+    const res = await client.rpc('claim_batch_atomic', {
+      p_task_type: input.taskType,
+      p_user_id: input.session.userId,
+      p_mode: input.session.mode,
+      p_batch_size: input.batchSize,
+      p_claim_ttl_minutes: CLAIM_TTL_MINUTES,
     })
-    const toInsert = snapshot.claims.filter((c) => c.batchId === result.batchId)
-    if (toInsert.length) {
-      const res = await client.from('claims').insert(
-        toInsert.map((c) => ({
-          id: c.id,
-          batch_id: c.batchId,
-          task_type: c.taskType,
-          sample_id: c.sampleId,
-          user_id: c.userId,
-          mode: c.mode,
-          status: c.status,
-          claimed_at: c.claimedAt,
-          expires_at: c.expiresAt,
-        })),
-      )
-      if (res.error) throw new Error(res.error.message)
-    }
-    return result
+    if (res.error) throw new Error(res.error.message)
+    return parseClaimBatchRpcResult(res.data)
   }
 
   async getBatch(input: { session: SessionSelection; taskType: TaskType; batchId: string }) {

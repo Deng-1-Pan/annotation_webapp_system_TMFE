@@ -181,6 +181,153 @@ select
 from task_item_annotation_state_v t
 group by t.task_type;
 
+-- Atomic batch claim (single transaction in Postgres).
+-- Serializes claims per task_type to eliminate race windows between concurrent requests.
+create or replace function claim_batch_atomic(
+  p_task_type text,
+  p_user_id text,
+  p_mode text,
+  p_batch_size integer,
+  p_claim_ttl_minutes integer default 60
+)
+returns jsonb
+language plpgsql
+as $$
+declare
+  v_now timestamptz := now();
+  v_limit integer;
+  v_batch_id text;
+  v_expires_at timestamptz;
+  v_to_double_ids text[] := '{}'::text[];
+  v_new_ids text[] := '{}'::text[];
+  v_sample_ids text[] := '{}'::text[];
+  v_to_double_count integer := 0;
+  v_new_count integer := 0;
+begin
+  if p_task_type is null or btrim(p_task_type) = '' then
+    raise exception 'Invalid task type';
+  end if;
+  if p_user_id is null or btrim(p_user_id) = '' then
+    raise exception 'Invalid user id';
+  end if;
+  if p_mode is null or p_mode not in ('annotator', 'test', 'adjudicator') then
+    raise exception 'Invalid mode';
+  end if;
+  if p_batch_size is null or p_batch_size <= 0 then
+    raise exception 'Invalid batch size';
+  end if;
+
+  v_limit := least(p_batch_size, 20);
+  v_expires_at := v_now + make_interval(mins => greatest(coalesce(p_claim_ttl_minutes, 60), 1));
+  v_batch_id := 'batch-' || p_task_type || '-' ||
+    floor(extract(epoch from v_now) * 1000)::bigint || '-' ||
+    substr(md5(random()::text || clock_timestamp()::text), 1, 6);
+
+  -- Lock only the claim critical section for the same task type.
+  perform pg_advisory_xact_lock(42042, hashtext(p_task_type));
+
+  with formal_counts as (
+    select
+      a.sample_id,
+      count(distinct a.user_id) as formal_count,
+      array_agg(distinct a.user_id) as formal_user_ids
+    from annotations a
+    where a.task_type = p_task_type
+      and a.mode = 'annotator'
+    group by a.sample_id
+  ),
+  active_claims as (
+    select distinct c.sample_id
+    from claims c
+    where c.task_type = p_task_type
+      and c.status = 'claimed'
+      and c.expires_at > v_now
+  ),
+  current_user_anns as (
+    select distinct a.sample_id
+    from annotations a
+    where a.task_type = p_task_type
+      and a.user_id = p_user_id
+  ),
+  eligible_items as (
+    select
+      ti.sample_id,
+      coalesce(fc.formal_count, 0) as formal_count,
+      coalesce(fc.formal_user_ids, '{}'::text[]) as formal_user_ids
+    from task_items ti
+    left join formal_counts fc on fc.sample_id = ti.sample_id
+    where ti.task_type = p_task_type
+      and not exists (
+        select 1 from active_claims ac where ac.sample_id = ti.sample_id
+      )
+      and not exists (
+        select 1 from current_user_anns cua where cua.sample_id = ti.sample_id
+      )
+  ),
+  single_pool as (
+    select
+      e.sample_id,
+      row_number() over (order by random(), e.sample_id) as ord
+    from eligible_items e
+    where e.formal_count = 1
+      and not (p_user_id = any(e.formal_user_ids))
+  ),
+  zero_pool as (
+    select
+      e.sample_id,
+      row_number() over (order by random(), e.sample_id) as ord
+    from eligible_items e
+    where e.formal_count = 0
+  ),
+  selected_single as (
+    select sp.sample_id, sp.ord
+    from single_pool sp
+    order by sp.ord
+    limit v_limit
+  ),
+  selected_zero as (
+    select zp.sample_id, zp.ord
+    from zero_pool zp
+    order by zp.ord
+    limit greatest(v_limit - (select count(*) from selected_single), 0)
+  )
+  select
+    coalesce(array(select ss.sample_id from selected_single ss order by ss.ord), '{}'::text[]),
+    coalesce(array(select sz.sample_id from selected_zero sz order by sz.ord), '{}'::text[])
+  into v_to_double_ids, v_new_ids;
+
+  v_to_double_count := coalesce(array_length(v_to_double_ids, 1), 0);
+  v_new_count := coalesce(array_length(v_new_ids, 1), 0);
+  v_sample_ids := coalesce(v_to_double_ids, '{}'::text[]) || coalesce(v_new_ids, '{}'::text[]);
+
+  if coalesce(array_length(v_sample_ids, 1), 0) > 0 then
+    insert into claims (
+      id, batch_id, task_type, sample_id, user_id, mode, status, claimed_at, expires_at
+    )
+    select
+      'claim-' || v_batch_id || '-' || x.sample_id as id,
+      v_batch_id as batch_id,
+      p_task_type as task_type,
+      x.sample_id,
+      p_user_id as user_id,
+      p_mode as mode,
+      'claimed' as status,
+      v_now as claimed_at,
+      v_expires_at as expires_at
+    from unnest(v_sample_ids) with ordinality as x(sample_id, ord)
+    order by x.ord;
+  end if;
+
+  return jsonb_build_object(
+    'batch_id', v_batch_id,
+    'task_type', p_task_type,
+    'sample_ids', to_jsonb(v_sample_ids),
+    'to_double_count', v_to_double_count,
+    'new_item_count', v_new_count
+  );
+end;
+$$;
+
 -- Optional utility for expiring stale claims
 create or replace function expire_stale_claims()
 returns integer
