@@ -71,9 +71,13 @@ export function TaskItemAnnotator({ taskType, item, index, total, onSubmit }: Pr
   }
 
   const p = item.taskItem.payload as unknown as Record<string, unknown>
+  const qaTurnGlobalIdx =
+    taskType === 'role_audit_qa_turns' && item.context
+      ? item.context.qaTurns[Number(p.turn_idx ?? 0)]?.idx
+      : undefined
   const roleContextTurns =
-    taskType === 'role_audit_qa_turns'
-      ? getContextAroundTurn(item.context, Number(p.turn_idx ?? 0), 2)
+    taskType === 'role_audit_qa_turns' && typeof qaTurnGlobalIdx === 'number'
+      ? getContextAroundTurn(item.context, qaTurnGlobalIdx, 2)
       : []
 
   return (
@@ -111,7 +115,7 @@ export function TaskItemAnnotator({ taskType, item, index, total, onSubmit }: Pr
             <h3>当前 Turn 前后上下文</h3>
             <div className="turn-list compact">
               {roleContextTurns.map((turn) => (
-                <div key={turn.idx} className={`turn-item ${turn.idx === Number(p.turn_idx) ? 'highlight' : ''}`}>
+                <div key={turn.idx} className={`turn-item ${turn.idx === qaTurnGlobalIdx ? 'highlight' : ''}`}>
                   <div className="turn-meta">
                     <span>#{turn.idx}</span>
                     <span>{turn.role ?? 'unknown'}</span>
@@ -209,7 +213,7 @@ export function TaskItemAnnotator({ taskType, item, index, total, onSubmit }: Pr
       {(taskType === 'role_audit_qa_turns' || taskType === 'qa_boundary_audit_docs') && (
         <TranscriptPanel
           context={item.context}
-          highlightTurnIdx={taskType === 'role_audit_qa_turns' ? Number(p.turn_idx) : undefined}
+          highlightTurnIdx={taskType === 'role_audit_qa_turns' ? qaTurnGlobalIdx : undefined}
           mode={taskType === 'qa_boundary_audit_docs' ? 'boundary' : 'role'}
         />
       )}

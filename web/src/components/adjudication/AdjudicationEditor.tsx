@@ -100,7 +100,13 @@ export function AdjudicationEditor({ detail, onSave }: Props) {
       {(detail.taskItem.taskType === 'role_audit_qa_turns' || detail.taskItem.taskType === 'qa_boundary_audit_docs') && (
         <TranscriptPanel
           context={detail.context}
-          highlightTurnIdx={detail.taskItem.taskType === 'role_audit_qa_turns' ? Number((detail.taskItem.payload as unknown as Record<string, unknown>).turn_idx) : undefined}
+          highlightTurnIdx={
+            detail.taskItem.taskType === 'role_audit_qa_turns' && detail.context
+              ? detail.context.qaTurns[
+                Number((detail.taskItem.payload as unknown as Record<string, unknown>).turn_idx ?? 0)
+              ]?.idx
+              : undefined
+          }
           mode={detail.taskItem.taskType === 'qa_boundary_audit_docs' ? 'boundary' : 'role'}
         />
       )}
