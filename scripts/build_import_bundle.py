@@ -111,7 +111,14 @@ def subset_parsed_transcripts(path: Path, doc_ids: set[str]) -> dict[str, dict[s
             continue
         speech_turns = normalize_turns(row.get('speech_turns'), 'speech')
         qa_turns = normalize_turns(row.get('qa_turns'), 'qa')
-        merged_turns = sorted([*speech_turns, *qa_turns], key=lambda x: (int(x.get('idx', 0)), str(x.get('section', ''))))
+        # Assign global absolute indices so speech turns [0..N-1] always
+        # precede QA turns [N..N+M-1] in the merged sequence.
+        for i, turn in enumerate(speech_turns):
+            turn['idx'] = i
+        offset = len(speech_turns)
+        for i, turn in enumerate(qa_turns):
+            turn['idx'] = offset + i
+        merged_turns = speech_turns + qa_turns  # already in correct order
         contexts[doc_id] = {
             'docId': doc_id,
             'ticker': ticker,
