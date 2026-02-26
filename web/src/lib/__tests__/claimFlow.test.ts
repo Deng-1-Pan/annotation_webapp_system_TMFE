@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import { createMockSeedSnapshot } from '../../test-data/mockSeed'
-import { claimBatchInSnapshot, saveAnnotationInSnapshot } from '../progress'
+import { buildBatchView, claimBatchInSnapshot, saveAnnotationInSnapshot } from '../progress'
 
 it('marks claims submitted after saving and does not block claiming a different task', () => {
   const snapshot = createMockSeedSnapshot()
@@ -43,4 +43,37 @@ it('marks claims submitted after saving and does not block claiming a different 
   })
 
   expect(roleBatch.sampleIds.length).toBeGreaterThan(0)
+})
+
+it('deduplicates duplicate claims for the same sample within one batch when building batch view', () => {
+  const snapshot = createMockSeedSnapshot()
+  const batch = claimBatchInSnapshot({
+    snapshot,
+    taskType: 'ai_sentence_audit',
+    userId: 'weijie-huang',
+    mode: 'annotator',
+    batchSize: 5,
+    nowIso: '2026-02-25T12:00:00Z',
+  })
+
+  expect(batch.sampleIds.length).toBeGreaterThan(0)
+  const duplicatedSampleId = batch.sampleIds[0]
+  const originalClaim = snapshot.claims.find(
+    (c) => c.batchId === batch.batchId && c.taskType === 'ai_sentence_audit' && c.sampleId === duplicatedSampleId,
+  )
+  expect(originalClaim).toBeDefined()
+
+  snapshot.claims.push({
+    ...originalClaim!,
+    id: `${originalClaim!.id}-dup`,
+  })
+
+  const view = buildBatchView({
+    snapshot,
+    taskType: 'ai_sentence_audit',
+    batchId: batch.batchId,
+    userId: 'weijie-huang',
+  })
+
+  expect(view.items.map((i) => i.taskItem.sampleId)).toEqual(batch.sampleIds)
 })

@@ -62,7 +62,8 @@ create table if not exists claims (
   status text not null check (status in ('claimed','submitted','expired','released')),
   claimed_at timestamptz not null default now(),
   expires_at timestamptz not null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  constraint claims_batch_task_sample_unique unique (batch_id, task_type, sample_id)
 );
 create index if not exists idx_claims_batch on claims(batch_id);
 create index if not exists idx_claims_task_status on claims(task_type, status, expires_at);

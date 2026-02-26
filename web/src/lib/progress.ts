@@ -316,7 +316,7 @@ export function claimBatchInSnapshot(input: {
     currentUserAnnotatedSampleIds: currentUserAnnSamples,
   })
 
-  const batchId = `batch-${input.taskType}-${Date.now()}`
+  const batchId = `batch-${input.taskType}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const expiresAt = new Date(new Date(now).getTime() + ttlMinutes * 60_000).toISOString()
   for (const sampleId of allocation.assignedSampleIds) {
     input.snapshot.claims.push({
@@ -350,7 +350,14 @@ export function buildBatchView(input: {
   const claims = input.snapshot.claims.filter(
     (c) => c.batchId === input.batchId && c.taskType === input.taskType,
   )
-  const items = claims
+  const seenSampleIds = new Set<string>()
+  const uniqueClaims = claims.filter((claim) => {
+    if (seenSampleIds.has(claim.sampleId)) return false
+    seenSampleIds.add(claim.sampleId)
+    return true
+  })
+
+  const items = uniqueClaims
     .map((claim) => {
       const taskItem = input.snapshot.taskItems.find(
         (it) => it.taskType === input.taskType && it.sampleId === claim.sampleId,
