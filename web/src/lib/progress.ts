@@ -347,9 +347,13 @@ export function buildBatchView(input: {
   batchId: string
   userId: string
 }): { batchId: string; taskType: TaskType; items: BatchItemView[] } {
-  const claims = input.snapshot.claims.filter(
-    (c) => c.batchId === input.batchId && c.taskType === input.taskType,
-  )
+  const claims = input.snapshot.claims
+    .filter((c) => c.batchId === input.batchId && c.taskType === input.taskType)
+    .sort((a, b) => {
+      const bySampleId = a.sampleId.localeCompare(b.sampleId)
+      if (bySampleId !== 0) return bySampleId
+      return a.id.localeCompare(b.id)
+    })
   const seenSampleIds = new Set<string>()
   const uniqueClaims = claims.filter((claim) => {
     if (seenSampleIds.has(claim.sampleId)) return false

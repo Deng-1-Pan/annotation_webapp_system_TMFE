@@ -75,7 +75,8 @@ it('deduplicates duplicate claims for the same sample within one batch when buil
     userId: 'weijie-huang',
   })
 
-  expect(view.items.map((i) => i.taskItem.sampleId)).toEqual(batch.sampleIds)
+  expect(view.items).toHaveLength(batch.sampleIds.length)
+  expect(new Set(view.items.map((i) => i.taskItem.sampleId))).toEqual(new Set(batch.sampleIds))
 })
 
 it('generates distinct batch ids for same-task claims created in the same millisecond', () => {
@@ -108,4 +109,39 @@ it('generates distinct batch ids for same-task claims created in the same millis
     randSpy.mockRestore()
     nowSpy.mockRestore()
   }
+})
+
+it('builds a stable item order for the same batch even if claim row order changes between fetches', () => {
+  const snapshot = createMockSeedSnapshot()
+  const batch = claimBatchInSnapshot({
+    snapshot,
+    taskType: 'ai_sentence_audit',
+    userId: 'weijie-huang',
+    mode: 'annotator',
+    batchSize: 10,
+    nowIso: '2026-02-25T12:00:00Z',
+  })
+
+  const firstView = buildBatchView({
+    snapshot,
+    taskType: 'ai_sentence_audit',
+    batchId: batch.batchId,
+    userId: 'weijie-huang',
+  })
+  const firstOrder = firstView.items.map((i) => i.taskItem.sampleId)
+
+  // Simulate DB returning the same batch claims in a different physical row order.
+  const batchClaims = snapshot.claims.filter((c) => c.batchId === batch.batchId && c.taskType === 'ai_sentence_audit')
+  const others = snapshot.claims.filter((c) => !(c.batchId === batch.batchId && c.taskType === 'ai_sentence_audit'))
+  snapshot.claims = [...others, ...batchClaims.reverse()]
+
+  const secondView = buildBatchView({
+    snapshot,
+    taskType: 'ai_sentence_audit',
+    batchId: batch.batchId,
+    userId: 'weijie-huang',
+  })
+  const secondOrder = secondView.items.map((i) => i.taskItem.sampleId)
+
+  expect(secondOrder).toEqual(firstOrder)
 })
