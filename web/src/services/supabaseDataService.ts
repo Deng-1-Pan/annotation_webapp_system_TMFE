@@ -78,7 +78,7 @@ async function loadSnapshot(): Promise<DataStoreSnapshot> {
     client.from('app_users').select('*').order('display_name', { ascending: true }),
     client.from('task_configs').select('*'),
     client.from('task_items').select('*'),
-    client.from('transcript_docs').select('*'),
+    Promise.resolve({ data: [], error: null }), // transcript_docs are now fetched lazily
     client.from('claims').select('*'),
     client.from('annotations').select('*'),
     client.from('adjudications').select('*'),
@@ -225,6 +225,28 @@ export class SupabaseDataService implements DataService {
 
   async getBatch(input: { session: SessionSelection; taskType: TaskType; batchId: string }) {
     const snapshot = await loadSnapshot()
+
+    // Identify needed docIds for this batch
+    const claims = snapshot.claims.filter(
+      (c) => c.batchId === input.batchId && c.taskType === input.taskType,
+    )
+    const docIdsToFetch = new Set<string>()
+    for (const c of claims) {
+      const item = snapshot.taskItems.find((it) => it.sampleId === c.sampleId && it.taskType === input.taskType)
+      if (item) docIdsToFetch.add(item.docId)
+    }
+
+    // Lazily fetch only the transcripts needed for this batch
+    if (docIdsToFetch.size > 0) {
+      const client = requireClient()
+      const docsRes = await client.from('transcript_docs').select('*').in('doc_id', Array.from(docIdsToFetch))
+      if (docsRes.error) throw new Error(docsRes.error.message)
+      for (const r of docsRes.data ?? []) {
+        const ctx = rowToTranscriptContext(r as unknown as Record<string, unknown>)
+        snapshot.transcriptContexts[ctx.docId] = ctx
+      }
+    }
+
     hydrateAnnotationUserNames(snapshot)
     return buildBatchView({
       snapshot,
@@ -282,6 +304,19 @@ export class SupabaseDataService implements DataService {
 
   async getAdjudicationDetail(taskType: TaskType, sampleId: string) {
     const snapshot = await loadSnapshot()
+
+    // Find the task item to determine the docId
+    const item = snapshot.taskItems.find((it) => it.sampleId === sampleId && it.taskType === taskType)
+    if (item) {
+      const client = requireClient()
+      const docsRes = await client.from('transcript_docs').select('*').eq('doc_id', item.docId)
+      if (docsRes.error) throw new Error(docsRes.error.message)
+      for (const r of docsRes.data ?? []) {
+        const ctx = rowToTranscriptContext(r as unknown as Record<string, unknown>)
+        snapshot.transcriptContexts[ctx.docId] = ctx
+      }
+    }
+
     hydrateAnnotationUserNames(snapshot)
     return getAdjudicationDetail(snapshot, taskType, sampleId)
   }
