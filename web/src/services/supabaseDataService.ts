@@ -284,6 +284,24 @@ export class SupabaseDataService implements DataService {
     const userRes = await client.from('app_users').select('*').eq('id', input.session.userId).single()
     if (userRes.error) throw new Error(userRes.error.message)
     const user = userRes.data
+    if (input.session.mode === 'annotator') {
+      const existingRes = await client
+        .from('annotations')
+        .select('user_id')
+        .eq('task_type', input.taskType)
+        .eq('sample_id', input.sampleId)
+        .eq('mode', 'annotator')
+      if (existingRes.error) throw new Error(existingRes.error.message)
+      const existingAnnotatorIds = new Set(
+        (existingRes.data ?? [])
+          .map((row) => String((row as unknown as Record<string, unknown>).user_id ?? ''))
+          .filter((id) => id.length > 0),
+      )
+      const alreadyContainsCurrentUser = existingAnnotatorIds.has(input.session.userId)
+      if (!alreadyContainsCurrentUser && existingAnnotatorIds.size >= 2) {
+        throw new Error('提交已被拦截：由于超时，该任务已被其他两位成员完成。')
+      }
+    }
     const payload = {
       id: `ann-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       task_type: input.taskType,

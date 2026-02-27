@@ -80,7 +80,7 @@ export function ClaimPage() {
     <AppShell title="批次领取">
       <section className="panel max-w-panel">
         <h2>{validTaskType}</h2>
-        <p>领取范围 5-20 条。分配策略：优先补齐 single_only，再用 zero_annotated 补足（auto_mixed）。</p>
+        <p>领取范围 1-20 条。分配策略：优先补齐 single_only，再用 zero_annotated 补足（auto_mixed）。</p>
         <TaskTutorial taskType={validTaskType} />
         {taskProgressQuery.data && (
           <div className="muted-text">
@@ -90,7 +90,7 @@ export function ClaimPage() {
         )}
         <label className="form-control">
           <span>批次大小：{batchSize}</span>
-          <input type="range" min={5} max={20} value={batchSize} onChange={(e) => setBatchSize(Number(e.target.value))} />
+          <input type="range" min={1} max={20} value={batchSize} onChange={(e) => setBatchSize(Number(e.target.value))} />
         </label>
         {remainingAssignableCount !== null && remainingAssignableCount < batchSize && (
           <div className="muted-text">

@@ -145,3 +145,74 @@ it('builds a stable item order for the same batch even if claim row order change
 
   expect(secondOrder).toEqual(firstOrder)
 })
+
+it('supports two annotators closing out single_only backlog by claiming one item at a time', () => {
+  const snapshot = createMockSeedSnapshot()
+  const taskType = 'ai_sentence_audit'
+  const seededSingleOnlyIds = snapshot.taskItems
+    .filter((item) => item.taskType === taskType)
+    .slice(0, 8)
+    .map((item) => item.sampleId)
+
+  for (const sampleId of seededSingleOnlyIds) {
+    saveAnnotationInSnapshot({
+      snapshot,
+      taskType,
+      sampleId,
+      user: { id: 'ruohan-zhong', displayName: 'Ruohan Zhong' },
+      mode: 'annotator',
+      annotation: { is_ai_true: 1, notes: 'seed single-only' },
+      nowIso: '2026-02-25T12:00:00Z',
+    })
+  }
+
+  const closingUsers = [
+    { id: 'weijie-huang', displayName: 'Weijie Huang' },
+    { id: 'arthur-hsu', displayName: 'Arthur HSU' },
+  ]
+
+  let minuteOffset = 1
+  let completedByClosers = 0
+  for (let round = 0; round < 30; round += 1) {
+    let claimedInRound = 0
+    for (const user of closingUsers) {
+      const nowIso = new Date(Date.UTC(2026, 1, 25, 12, minuteOffset, 0)).toISOString()
+      minuteOffset += 1
+      const batch = claimBatchInSnapshot({
+        snapshot,
+        taskType,
+        userId: user.id,
+        mode: 'annotator',
+        batchSize: 1,
+        nowIso,
+      })
+
+      const sampleId = batch.sampleIds[0]
+      if (!sampleId) continue
+      claimedInRound += 1
+      completedByClosers += 1
+      saveAnnotationInSnapshot({
+        snapshot,
+        taskType,
+        sampleId,
+        user,
+        mode: 'annotator',
+        annotation: { is_ai_true: 0, notes: `closed by ${user.id}` },
+        batchId: batch.batchId,
+        nowIso,
+      })
+    }
+    if (claimedInRound === 0) break
+  }
+
+  expect(completedByClosers).toBeGreaterThanOrEqual(seededSingleOnlyIds.length)
+
+  for (const sampleId of seededSingleOnlyIds) {
+    const distinctFormalUsers = new Set(
+      snapshot.annotations
+        .filter((ann) => ann.taskType === taskType && ann.sampleId === sampleId && ann.mode === 'annotator')
+        .map((ann) => ann.userId),
+    )
+    expect(distinctFormalUsers.size).toBeGreaterThanOrEqual(2)
+  }
+})
